@@ -33,6 +33,19 @@ import {
   removePlaneTimeTrackingButton,
 } from "./utils/plane";
 
+import {
+  isGitLabIssuePage,
+  getGitLabIssueInfo,
+  getIssueTitleFromDOM as getGitLabTitleFromDOM,
+  findGitLabActionsWrapper,
+  waitForElement as waitForGitLabElement,
+  observeGitLabUrlChanges,
+  observeGitLabActionsWrapper,
+  injectGitLabTimeTrackingButton,
+  removeGitLabTimeTrackingButton,
+} from "./utils/gitlab";
+
+import { isGitLabDomain } from "./utils/gitlabDomains";
 import { storageLoaded } from "./utils/oauth";
 
 export default defineContentScript({
@@ -41,6 +54,8 @@ export default defineContentScript({
     "*://app.linear.app/*",
     "*://*.atlassian.net/*",
     "*://app.plane.so/*",
+    // Self-hosted GitLab domains are registered at runtime by the background script
+    "*://gitlab.com/*",
   ],
   async main() {
     // Load the Solidtime instance settings and tokens before any API call
@@ -50,6 +65,7 @@ export default defineContentScript({
     const isLinear = window.location.hostname.includes("linear.app");
     const isJira = window.location.hostname.includes("atlassian.net");
     const isPlane = window.location.hostname.includes("plane.so");
+    const isGitLab = await isGitLabDomain(window.location.hostname);
 
     if (isLinear) {
       initializeLinear();
@@ -57,6 +73,8 @@ export default defineContentScript({
       initializeJira();
     } else if (isPlane) {
       initializePlane();
+    } else if (isGitLab) {
+      initializeGitLab();
     }
   },
 });
@@ -254,6 +272,72 @@ function initializePlane() {
 
   // Watch for URL changes (Plane is an SPA)
   observePlaneUrlChanges(() => {
+    handlePageLoad();
+  });
+}
+
+// GitLab integration
+function initializeGitLab() {
+  // Keep track of the current observer
+  let actionsWrapperObserver: MutationObserver | null = null;
+
+  // Function to inject time tracking if a GitLab work item is shown
+  async function handlePageLoad() {
+    // Disconnect previous observer if it exists
+    if (actionsWrapperObserver) {
+      actionsWrapperObserver.disconnect();
+      actionsWrapperObserver = null;
+    }
+
+    // The shown work item may have changed (full page -> side panel, or another issue in the panel)
+    removeGitLabTimeTrackingButton();
+
+    // Check if we're on a work item page or the side panel is open
+    if (!isGitLabIssuePage()) {
+      return;
+    }
+
+    try {
+      // Wait for the sidebar to load (GitLab fetches work items via GraphQL after page load)
+      const actionsWrapper = await waitForGitLabElement(
+        findGitLabActionsWrapper,
+        10000,
+      );
+
+      if (!actionsWrapper) {
+        return;
+      }
+
+      // Get issue information
+      const issueInfo = getGitLabIssueInfo();
+      if (!issueInfo) {
+        return;
+      }
+
+      // Get the issue title from DOM
+      const issueTitle = getGitLabTitleFromDOM() || issueInfo.reference;
+
+      // Create issue description for time entry
+      const issueDescription = `${issueInfo.reference} ${issueTitle}`;
+
+      // Inject the time tracking section
+      await injectGitLabTimeTrackingButton(actionsWrapper, issueDescription);
+
+      // Set up observer to watch for DOM changes that might remove the section
+      actionsWrapperObserver = observeGitLabActionsWrapper(issueDescription);
+    } catch (error) {
+      console.error(
+        "Solidtime: Failed to inject GitLab time tracking button:",
+        error,
+      );
+    }
+  }
+
+  // Initial load
+  handlePageLoad();
+
+  // Watch for URL changes (GitLab work items and the side panel are client-side routed)
+  observeGitLabUrlChanges(() => {
     handlePageLoad();
   });
 }

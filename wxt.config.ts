@@ -4,7 +4,7 @@ import { defineConfig } from "wxt";
 export default defineConfig({
   modules: ["@wxt-dev/module-vue"],
   manifest: {
-    permissions: ["storage", "identity"],
+    permissions: ["storage", "identity", "scripting"],
     host_permissions: ["<all_urls>"],
     name: "Solidtime",
     description:

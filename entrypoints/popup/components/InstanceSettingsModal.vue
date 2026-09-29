@@ -13,6 +13,11 @@ import {
     DEFAULT_ENDPOINT,
     DEFAULT_CLIENT_ID,
 } from "../../utils/oauth";
+import {
+    getGitLabDomains,
+    parseGitLabDomains,
+    setGitLabDomains,
+} from "../../utils/gitlabDomains";
 import { ref, watch } from "vue";
 
 const props = defineProps({
@@ -34,14 +39,16 @@ const emit = defineEmits(["close"]);
 
 const tempEndpoint = ref(endpoint.value);
 const tempClientId = ref(clientId.value);
+const tempGitLabDomains = ref("");
 
 // Settings load asynchronously from browser.storage, so refresh the form whenever it opens
 watch(
     () => props.show,
-    (show) => {
+    async (show) => {
         if (show) {
             tempEndpoint.value = endpoint.value;
             tempClientId.value = clientId.value;
+            tempGitLabDomains.value = (await getGitLabDomains()).join(", ");
         }
     },
 );
@@ -56,6 +63,7 @@ async function submit() {
         tempEndpoint.value = tempEndpoint.value.slice(0, -1);
     }
     await saveInstanceSettings(tempEndpoint.value, tempClientId.value);
+    await setGitLabDomains(parseGitLabDomains(tempGitLabDomains.value));
     emit("close");
 }
 </script>
@@ -119,6 +127,28 @@ async function submit() {
                 >
                     Reset to defaults
                 </button>
+            </div>
+
+            <div
+                class="mt-6 pt-4 border-t border-card-background-separator text-sm text-muted flex flex-col justify-center"
+            >
+                <InputLabel
+                    for="gitlabDomains"
+                    value="Self-hosted GitLab domains"
+                />
+                <TextInput
+                    id="gitlabDomains"
+                    v-model="tempGitLabDomains"
+                    name="gitlabDomains"
+                    type="text"
+                    placeholder="gitlab.example.com, git.company.org"
+                    class="mt-2 block w-full"
+                    @keydown.enter="submit()"
+                />
+                <p class="mt-2 text-xs">
+                    gitlab.com works automatically. Separate multiple domains
+                    with commas. Reload open GitLab tabs after saving.
+                </p>
             </div>
         </div>
 
