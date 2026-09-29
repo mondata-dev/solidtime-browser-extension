@@ -7,9 +7,12 @@ import { getCurrentTimeEntry } from "./timeEntries";
 import type { CreateTimeEntryBody } from "@solidtime/api";
 import { accessToken } from "./oauth";
 import { dayjs } from "./dayjs";
+import { findOrCreateProject, findOrCreateTask } from "./projectTasks";
 
 export interface GitLabIssueInfo {
-  reference: string;
+  iid: string;
+  // Repository (project path) name, used as the Solidtime project name
+  projectName: string;
   fullUrl: string;
 }
 
@@ -38,9 +41,11 @@ function findWorkItemRoot(): HTMLElement | null {
 }
 
 /**
- * Turns an issue path into a GitLab reference, e.g. "/group/project/-/work_items/42" -> "project#42"
+ * Extracts repository name and issue iid from an issue path, e.g. "/group/project/-/work_items/42"
  */
-function parseIssuePath(path: string): string | null {
+function parseIssuePath(
+  path: string,
+): Pick<GitLabIssueInfo, "iid" | "projectName"> | null {
   // The side panel link can still point at /-/issues/N on some GitLab versions
   const match = path.match(/^(.*)\/-\/(?:issues|work_items)\/(\d+)(?:\/|$)/);
 
@@ -50,9 +55,9 @@ function parseIssuePath(path: string): string | null {
   }
 
   const [, projectPath, iid] = match;
-  const projectSlug = decodeURIComponent(projectPath.split("/").pop() || "");
+  const projectName = decodeURIComponent(projectPath.split("/").pop() || "");
 
-  return projectSlug ? `${projectSlug}#${iid}` : null;
+  return projectName ? { iid, projectName } : null;
 }
 
 /**
@@ -81,14 +86,14 @@ export function getGitLabIssueInfo(): GitLabIssueInfo | null {
     const refLink = document.querySelector<HTMLAnchorElement>(
       '[data-testid="work-item-detail-panel"] [data-testid="work-item-detail-panel-ref-link"]',
     );
-    const reference = refLink ? parseIssuePath(refLink.pathname) : null;
+    const issue = refLink ? parseIssuePath(refLink.pathname) : null;
 
-    return refLink && reference ? { reference, fullUrl: refLink.href } : null;
+    return refLink && issue ? { ...issue, fullUrl: refLink.href } : null;
   }
 
-  const reference = parseIssuePath(window.location.pathname);
+  const issue = parseIssuePath(window.location.pathname);
 
-  return reference ? { reference, fullUrl: window.location.href } : null;
+  return issue ? { ...issue, fullUrl: window.location.href } : null;
 }
 
 /**
@@ -178,6 +183,7 @@ function createGitLabTimeTrackingSection(isTracking: boolean): HTMLElement {
  */
 export async function injectGitLabTimeTrackingButton(
   timeTrackingWidget: HTMLElement,
+  issueInfo: GitLabIssueInfo,
   issueDescription: string,
   skipExistingCheck = false,
 ): Promise<void> {
@@ -216,7 +222,7 @@ export async function injectGitLabTimeTrackingButton(
   const button = document.getElementById(BUTTON_ID);
   if (button) {
     button.addEventListener("click", () =>
-      handleGitLabTrackingClick(issueDescription, isTracking),
+      handleGitLabTrackingClick(issueInfo, issueDescription, isTracking),
     );
   }
 }
@@ -225,6 +231,7 @@ export async function injectGitLabTimeTrackingButton(
  * Handles the Start/Stop Tracking button click
  */
 async function handleGitLabTrackingClick(
+  issueInfo: GitLabIssueInfo,
   issueDescription: string,
   isCurrentlyTracking: boolean,
 ): Promise<void> {
@@ -243,6 +250,8 @@ async function handleGitLabTrackingClick(
     }
 
     const client = apiClient();
+    // Shown after the timer started, so the alert doesn't delay it
+    let notice: string | null = null;
 
     if (isCurrentlyTracking) {
       // Stop current time entry
@@ -262,7 +271,8 @@ async function handleGitLabTrackingClick(
         );
       }
     } else {
-      // Start new time entry
+      // Start new time entry at the time of the click (finding the project and task takes a moment)
+      const start = dayjs.utc().format();
       const storage = await browser.storage.local.get<{
         current_organization_id?: string;
         currentMembershipId?: string;
@@ -275,11 +285,46 @@ async function handleGitLabTrackingClick(
         return;
       }
 
+      // Associate the time entry with the repository's project and the issue's task.
+      // If either can't be found or created, still start the timer and tell the user.
+      let projectId: string | null = null;
+      let taskId: string | null = null;
+      let billable = false;
+      try {
+        const project = await findOrCreateProject(
+          organizationId,
+          issueInfo.projectName,
+        );
+        projectId = project.id;
+        billable = project.is_billable;
+
+        const taskPrefix = `#${issueInfo.iid}`;
+        const task = await findOrCreateTask(
+          organizationId,
+          project.id,
+          issueDescription,
+          (task) =>
+            task.name === taskPrefix || task.name.startsWith(`${taskPrefix} `),
+        );
+        taskId = task.id;
+      } catch (error) {
+        console.error(
+          "Solidtime: Failed to find or create project/task:",
+          error,
+        );
+        const missing = projectId
+          ? "a task"
+          : `the project "${issueInfo.projectName}"`;
+        notice = `The timer was started without ${missing}, because it could not be found or created in Solidtime: ${getApiErrorMessage(error)}`;
+      }
+
       const timeEntryData: CreateTimeEntryBody = {
         member_id: membershipId,
+        project_id: projectId,
+        task_id: taskId,
         description: issueDescription,
-        start: dayjs.utc().format(),
-        billable: false,
+        start,
+        billable,
       };
 
       await client.createTimeEntry(timeEntryData, {
@@ -294,9 +339,14 @@ async function handleGitLabTrackingClick(
     if (timeTrackingWidget) {
       await injectGitLabTimeTrackingButton(
         timeTrackingWidget,
+        issueInfo,
         issueDescription,
         true,
       );
+    }
+
+    if (notice) {
+      alert(notice);
     }
   } catch (error) {
     console.error("Failed to toggle time tracking:", error);
@@ -311,6 +361,18 @@ async function handleGitLabTrackingClick(
       button.style.cursor = "pointer";
     }
   }
+}
+
+/**
+ * Gets a readable message from a failed API request (e.g. missing permission or validation error)
+ */
+function getApiErrorMessage(error: unknown): string {
+  const response = (error as { response?: { data?: { message?: string } } })
+    ?.response;
+  return (
+    response?.data?.message ||
+    (error instanceof Error ? error.message : "Unknown error")
+  );
 }
 
 /**
@@ -384,6 +446,7 @@ export function observeGitLabUrlChanges(callback: () => void): void {
  * Uses a throttled approach to minimize performance impact
  */
 export function observeGitLabActionsWrapper(
+  issueInfo: GitLabIssueInfo,
   issueDescription: string,
 ): MutationObserver {
   const observedUrl = window.location.href;
@@ -409,6 +472,7 @@ export function observeGitLabActionsWrapper(
         if (timeTrackingWidget) {
           await injectGitLabTimeTrackingButton(
             timeTrackingWidget,
+            issueInfo,
             issueDescription,
           );
         }
