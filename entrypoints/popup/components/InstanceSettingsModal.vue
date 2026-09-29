@@ -6,10 +6,16 @@ import {
     TextInput,
     InputLabel,
 } from "@solidtime/ui";
-import { endpoint, clientId } from "../../utils/oauth";
-import { ref } from "vue";
+import {
+    endpoint,
+    clientId,
+    saveInstanceSettings,
+    DEFAULT_ENDPOINT,
+    DEFAULT_CLIENT_ID,
+} from "../../utils/oauth";
+import { ref, watch } from "vue";
 
-defineProps({
+const props = defineProps({
     show: {
         type: Boolean,
         default: false,
@@ -29,17 +35,27 @@ const emit = defineEmits(["close"]);
 const tempEndpoint = ref(endpoint.value);
 const tempClientId = ref(clientId.value);
 
+// Settings load asynchronously from browser.storage, so refresh the form whenever it opens
+watch(
+    () => props.show,
+    (show) => {
+        if (show) {
+            tempEndpoint.value = endpoint.value;
+            tempClientId.value = clientId.value;
+        }
+    },
+);
+
 const close = () => {
     emit("close");
 };
 
-function submit() {
+async function submit() {
     // remove last character if it is a slash
     if (tempEndpoint.value[tempEndpoint.value.length - 1] === "/") {
         tempEndpoint.value = tempEndpoint.value.slice(0, -1);
     }
-    endpoint.value = tempEndpoint.value;
-    clientId.value = tempClientId.value;
+    await saveInstanceSettings(tempEndpoint.value, tempClientId.value);
     emit("close");
 }
 </script>
@@ -96,8 +112,8 @@ function submit() {
             <div class="flex justify-start mt-4">
                 <button
                     @click="
-                        tempEndpoint = 'https://app.solidtime.io';
-                        tempClientId = '9c994748-c593-4a6d-951b-6849c829bc4e';
+                        tempEndpoint = DEFAULT_ENDPOINT;
+                        tempClientId = DEFAULT_CLIENT_ID;
                     "
                     class="text-sm text-muted hover:text-white"
                 >
