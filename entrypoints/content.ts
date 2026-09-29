@@ -315,16 +315,25 @@ function initializeGitLab() {
       }
 
       // Get the issue title from DOM
-      const issueTitle = getGitLabTitleFromDOM() || issueInfo.reference;
+      const issueTitle = getGitLabTitleFromDOM();
 
-      // Create issue description for time entry
-      const issueDescription = `${issueInfo.reference} ${issueTitle}`;
+      // Create issue description for time entry (the repository becomes the Solidtime project)
+      const issueDescription = issueTitle
+        ? `#${issueInfo.iid} ${issueTitle}`
+        : `#${issueInfo.iid}`;
 
       // Inject the time tracking section
-      await injectGitLabTimeTrackingButton(actionsWrapper, issueDescription);
+      await injectGitLabTimeTrackingButton(
+        actionsWrapper,
+        issueInfo,
+        issueDescription,
+      );
 
       // Set up observer to watch for DOM changes that might remove the section
-      actionsWrapperObserver = observeGitLabActionsWrapper(issueDescription);
+      actionsWrapperObserver = observeGitLabActionsWrapper(
+        issueInfo,
+        issueDescription,
+      );
     } catch (error) {
       console.error(
         "Solidtime: Failed to inject GitLab time tracking button:",
