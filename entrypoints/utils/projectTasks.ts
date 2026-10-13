@@ -1,41 +1,18 @@
 /**
- * Finds or creates the Solidtime project and task that an issue's time entries belong to
+ * Finds the Solidtime project and task that an issue's time entries belong to
  */
 
 import type { Project, Task } from "@solidtime/api";
 import { apiClient } from "./api";
 
-// Solidtime's project colors (from @solidtime/ui, which is too large to bundle into content scripts)
-const PROJECT_COLORS = [
-  "#ef5350",
-  "#ec407a",
-  "#ab47bc",
-  "#7e57c2",
-  "#5c6bc0",
-  "#42a5f5",
-  "#29b6f6",
-  "#26c6da",
-  "#26a69a",
-  "#66bb6a",
-  "#9ccc65",
-  "#d4e157",
-  "#ffee58",
-  "#ffca28",
-  "#ffa726",
-  "#ff7043",
-  "#8d6e63",
-  "#bdbdbd",
-  "#78909c",
-];
-
 /**
- * Finds the project with the given name, or creates it.
+ * Finds the project with the given name, or returns null if there is none.
  * An exact name match wins over a case-insensitive one.
  */
-export async function findOrCreateProject(
+export async function findProject(
   organizationId: string,
   name: string,
-): Promise<Project> {
+): Promise<Project | null> {
   const client = apiClient();
   let caseInsensitiveMatch: Project | undefined;
 
@@ -60,22 +37,7 @@ export async function findOrCreateProject(
     }
   }
 
-  if (caseInsensitiveMatch) {
-    return caseInsensitiveMatch;
-  }
-
-  const response = await client.createProject(
-    {
-      name,
-      color: PROJECT_COLORS[Math.floor(Math.random() * PROJECT_COLORS.length)],
-      is_billable: false,
-      // The API requires client_id to be present
-      client_id: null,
-    },
-    { params: { organization: organizationId } },
-  );
-
-  return response.data;
+  return caseInsensitiveMatch ?? null;
 }
 
 /**

@@ -7,7 +7,7 @@ import { getCurrentTimeEntry } from "./timeEntries";
 import type { CreateTimeEntryBody, TimeEntry } from "@solidtime/api";
 import { accessToken } from "./oauth";
 import { dayjs } from "./dayjs";
-import { findOrCreateProject, findOrCreateTask } from "./projectTasks";
+import { findOrCreateTask, findProject } from "./projectTasks";
 
 export interface GitLabIssueInfo {
   iid: string;
@@ -18,6 +18,7 @@ export interface GitLabIssueInfo {
 
 const SECTION_ID = "solidtime-gitlab-section";
 const BUTTON_ID = "solidtime-gitlab-tracking-btn";
+const MESSAGE_ID = "solidtime-gitlab-message";
 
 // The issue the section was last injected for, used to refresh it in place
 let injectedIssue: {
@@ -253,12 +254,14 @@ async function handleGitLabTrackingClick(
 
   try {
     if (!accessToken.value) {
-      alert("Please log in to Solidtime first by clicking the extension icon");
+      showGitLabMessage(
+        "Please log in to Solidtime first by clicking the extension icon",
+      );
       return;
     }
 
     const client = apiClient();
-    // Shown after the timer started, so the alert doesn't delay it
+    // Shown after the timer started, so the refreshed section doesn't remove it
     let notice: string | null = null;
 
     // The timer may have been started or stopped elsewhere since the button was rendered
@@ -295,41 +298,46 @@ async function handleGitLabTrackingClick(
       const membershipId = storage.currentMembershipId;
 
       if (!organizationId || !membershipId) {
-        alert("Please select an organization in the Solidtime extension first");
+        showGitLabMessage(
+          "Please select an organization in the Solidtime extension first",
+        );
         return;
       }
 
       // Associate the time entry with the repository's project and the issue's task.
-      // If either can't be found or created, still start the timer and tell the user.
+      // Projects are never created, so without a matching project (or if the task can't
+      // be found or created) still start the timer and tell the user.
       let projectId: string | null = null;
       let taskId: string | null = null;
       let billable = false;
       try {
-        const project = await findOrCreateProject(
+        const project = await findProject(
           organizationId,
           issueInfo.projectName,
         );
-        projectId = project.id;
-        billable = project.is_billable;
 
-        const taskPrefix = `#${issueInfo.iid}`;
-        const task = await findOrCreateTask(
-          organizationId,
-          project.id,
-          issueDescription,
-          (task) =>
-            task.name === taskPrefix || task.name.startsWith(`${taskPrefix} `),
-        );
-        taskId = task.id;
+        if (project) {
+          projectId = project.id;
+          billable = project.is_billable;
+
+          const taskPrefix = `#${issueInfo.iid}`;
+          const task = await findOrCreateTask(
+            organizationId,
+            project.id,
+            issueDescription,
+            (task) =>
+              task.name === taskPrefix ||
+              task.name.startsWith(`${taskPrefix} `),
+          );
+          taskId = task.id;
+        } else {
+          notice = `The timer was started without a project, because there is no Solidtime project named "${issueInfo.projectName}". You can set the project in the Solidtime extension.`;
+        }
       } catch (error) {
-        console.error(
-          "Solidtime: Failed to find or create project/task:",
-          error,
-        );
-        const missing = projectId
-          ? "a task"
-          : `the project "${issueInfo.projectName}"`;
-        notice = `The timer was started without ${missing}, because it could not be found or created in Solidtime: ${getApiErrorMessage(error)}`;
+        console.error("Solidtime: Failed to find project/task:", error);
+        notice = projectId
+          ? `The timer was started without a task, because it could not be found or created in Solidtime: ${getApiErrorMessage(error)}`
+          : `The timer was started without a project, because the projects could not be loaded from Solidtime: ${getApiErrorMessage(error)}`;
       }
 
       const timeEntryData: CreateTimeEntryBody = {
@@ -360,11 +368,11 @@ async function handleGitLabTrackingClick(
     }
 
     if (notice) {
-      alert(notice);
+      showGitLabMessage(notice);
     }
   } catch (error) {
     console.error("Failed to toggle time tracking:", error);
-    alert(
+    showGitLabMessage(
       "Failed to toggle time tracking. Please make sure you are logged in.",
     );
   } finally {
@@ -375,6 +383,26 @@ async function handleGitLabTrackingClick(
       button.style.cursor = "pointer";
     }
   }
+}
+
+/**
+ * Shows a red message below the button, until the section is rendered again
+ */
+function showGitLabMessage(message: string): void {
+  const section = document.getElementById(SECTION_ID);
+  if (!section) return;
+
+  let messageElement = document.getElementById(MESSAGE_ID);
+  if (!messageElement) {
+    messageElement = document.createElement("p");
+    messageElement.id = MESSAGE_ID;
+    messageElement.className = "gl-mb-0 gl-mt-2 gl-text-sm";
+    messageElement.style.color = "var(--gl-text-color-danger, #DE350B)";
+    messageElement.setAttribute("role", "alert");
+    section.appendChild(messageElement);
+  }
+
+  messageElement.textContent = message;
 }
 
 /**

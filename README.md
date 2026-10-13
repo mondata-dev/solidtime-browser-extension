@@ -46,7 +46,7 @@ gitlab.com works out of the box. For a self-hosted GitLab instance:
 
 The timer button is shown on work item pages (`/-/work_items/N`) and in the issue side panel.
 
-GitLab time entries are described as `#123 Issue title` and assigned to the Solidtime project named like the repository, with one task per issue (named `#123 Issue title`). Missing projects and tasks are created automatically, which requires permission to create projects and tasks in your Solidtime organization. Without it, the timer still starts, without project or task.
+GitLab time entries are described as `#123 Issue title` and assigned to the Solidtime project named like the repository, with one task per issue (named `#123 Issue title`). Projects are never created: if there is no project named like the repository, the timer starts without a project, and you can set one in the extension popup. Missing tasks are created automatically, which requires permission to create tasks in your Solidtime organization. Without it, the timer still starts, without a task.
 
 ## Development
 
