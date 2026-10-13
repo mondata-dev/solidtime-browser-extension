@@ -76,16 +76,16 @@ async function submit() {
         @close="close"
     >
         <div class="px-6 py-4">
-            <div class="text-lg font-medium text-white" role="heading">
+            <div class="text-lg font-medium text-text-primary" role="heading">
                 Instance Settings
             </div>
 
-            <div class="mt-4 text-sm text-muted">
+            <div class="mt-4 text-sm text-text-secondary">
                 Configure your Solidtime instance endpoint and client ID. These
                 settings are only needed if you're using a self-hosted instance.
             </div>
 
-            <div class="mt-4 text-sm text-muted flex flex-col justify-center">
+            <div class="mt-4 text-sm text-text-secondary flex flex-col justify-center">
                 <InputLabel
                     for="instanceEndpoint"
                     value="Solidtime Instance Endpoint"
@@ -101,7 +101,7 @@ async function submit() {
                 />
             </div>
 
-            <div class="mt-4 text-sm text-muted flex flex-col justify-center">
+            <div class="mt-4 text-sm text-text-secondary flex flex-col justify-center">
                 <InputLabel
                     for="clientId"
                     value="Solidtime Instance Client Id"
@@ -123,7 +123,7 @@ async function submit() {
                         tempEndpoint = DEFAULT_ENDPOINT;
                         tempClientId = DEFAULT_CLIENT_ID;
                     "
-                    class="text-sm text-muted hover:text-white"
+                    class="text-sm text-text-secondary hover:text-text-primary"
                 >
                     Reset to defaults
                 </button>
