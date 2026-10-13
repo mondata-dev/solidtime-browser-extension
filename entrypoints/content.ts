@@ -319,7 +319,7 @@ function initializeGitLab() {
       // Get the issue title from DOM
       const issueTitle = getGitLabTitleFromDOM();
 
-      // Create issue description for time entry (the repository becomes the Solidtime project)
+      // Create issue description for time entry (the repository's name selects the Solidtime project)
       const issueDescription = issueTitle
         ? `#${issueInfo.iid} ${issueTitle}`
         : `#${issueInfo.iid}`;
