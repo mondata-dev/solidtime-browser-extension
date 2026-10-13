@@ -4,7 +4,7 @@
 
 import { apiClient } from "./api";
 import { getCurrentTimeEntry } from "./timeEntries";
-import type { CreateTimeEntryBody } from "@solidtime/api";
+import type { CreateTimeEntryBody, TimeEntry } from "@solidtime/api";
 import { accessToken } from "./oauth";
 import { dayjs } from "./dayjs";
 import { findOrCreateProject, findOrCreateTask } from "./projectTasks";
@@ -18,6 +18,13 @@ export interface GitLabIssueInfo {
 
 const SECTION_ID = "solidtime-gitlab-section";
 const BUTTON_ID = "solidtime-gitlab-tracking-btn";
+
+// The issue the section was last injected for, used to refresh it in place
+let injectedIssue: {
+  issueInfo: GitLabIssueInfo;
+  issueDescription: string;
+} | null = null;
+let refreshInProgress: Promise<void> | null = null;
 
 /**
  * Checks if a work item is opened in the side panel (from issue lists and boards)
@@ -217,6 +224,7 @@ export async function injectGitLabTimeTrackingButton(
   // Create the section and insert it right after GitLab's own "Time tracking" widget
   const section = createGitLabTimeTrackingSection(isTracking);
   timeTrackingWidget.after(section);
+  injectedIssue = { issueInfo, issueDescription };
 
   // Add click handler
   const button = document.getElementById(BUTTON_ID);
@@ -253,23 +261,29 @@ async function handleGitLabTrackingClick(
     // Shown after the timer started, so the alert doesn't delay it
     let notice: string | null = null;
 
-    if (isCurrentlyTracking) {
+    // The timer may have been started or stopped elsewhere since the button was rendered
+    // (extension popup, Solidtime web app, another device)
+    const runningEntry = await getRunningTimeEntry();
+    if (!!runningEntry !== isCurrentlyTracking) {
+      // Only correct the button, so an outdated button never starts or stops a timer
+      await refreshGitLabTimeTrackingButton();
+      return;
+    }
+
+    if (runningEntry) {
       // Stop current time entry
-      const currentEntry = await getCurrentTimeEntry();
-      if (currentEntry?.data?.id) {
-        await client.updateTimeEntry(
-          {
-            ...currentEntry.data,
-            end: dayjs.utc().format(),
+      await client.updateTimeEntry(
+        {
+          ...runningEntry,
+          end: dayjs.utc().format(),
+        },
+        {
+          params: {
+            organization: runningEntry.organization_id,
+            timeEntry: runningEntry.id,
           },
-          {
-            params: {
-              organization: currentEntry.data.organization_id,
-              timeEntry: currentEntry.data.id,
-            },
-          },
-        );
-      }
+        },
+      );
     } else {
       // Start new time entry at the time of the click (finding the project and task takes a moment)
       const start = dayjs.utc().format();
@@ -364,6 +378,22 @@ async function handleGitLabTrackingClick(
 }
 
 /**
+ * Gets the user's running time entry, or null if no timer is running
+ */
+async function getRunningTimeEntry(): Promise<TimeEntry | null> {
+  try {
+    const response = await getCurrentTimeEntry();
+    return response?.data?.id ? response.data : null;
+  } catch (error) {
+    // The API responds with 404 when no timer is running
+    if ((error as { response?: { status?: number } })?.response?.status === 404) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+/**
  * Gets a readable message from a failed API request (e.g. missing permission or validation error)
  */
 function getApiErrorMessage(error: unknown): string {
@@ -373,6 +403,47 @@ function getApiErrorMessage(error: unknown): string {
     response?.data?.message ||
     (error instanceof Error ? error.message : "Unknown error")
   );
+}
+
+/**
+ * Re-reads the running timer from the API and updates the injected section in place.
+ * Overlapping calls (e.g. focus and visibilitychange on a tab switch) share one request.
+ */
+export function refreshGitLabTimeTrackingButton(): Promise<void> {
+  refreshInProgress ??= (async () => {
+    const timeTrackingWidget = findGitLabActionsWrapper();
+    if (
+      !injectedIssue ||
+      !timeTrackingWidget ||
+      !document.getElementById(SECTION_ID)
+    ) {
+      return;
+    }
+
+    await injectGitLabTimeTrackingButton(
+      timeTrackingWidget,
+      injectedIssue.issueInfo,
+      injectedIssue.issueDescription,
+      true,
+    );
+  })().finally(() => {
+    refreshInProgress = null;
+  });
+
+  return refreshInProgress;
+}
+
+/**
+ * Calls the callback when the user comes back to the page: when the tab becomes visible
+ * again, or the window gets focus back (e.g. after closing the extension popup)
+ */
+export function observeGitLabPageFocus(callback: () => void): void {
+  window.addEventListener("focus", callback);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      callback();
+    }
+  });
 }
 
 /**
