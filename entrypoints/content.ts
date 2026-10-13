@@ -43,6 +43,8 @@ import {
   observeGitLabActionsWrapper,
   injectGitLabTimeTrackingButton,
   removeGitLabTimeTrackingButton,
+  refreshGitLabTimeTrackingButton,
+  observeGitLabPageFocus,
 } from "./utils/gitlab";
 
 import { isGitLabDomain } from "./utils/gitlabDomains";
@@ -348,5 +350,11 @@ function initializeGitLab() {
   // Watch for URL changes (GitLab work items and the side panel are client-side routed)
   observeGitLabUrlChanges(() => {
     handlePageLoad();
+  });
+
+  // Re-check the running timer when coming back to the page, it may have been started or
+  // stopped in the extension popup, the Solidtime web app or on another device
+  observeGitLabPageFocus(() => {
+    refreshGitLabTimeTrackingButton();
   });
 }
