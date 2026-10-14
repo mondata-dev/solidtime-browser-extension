@@ -33,6 +33,8 @@ import {
   removePlaneTimeTrackingButton,
 } from "./utils/plane";
 
+import { storageLoaded } from "./utils/oauth";
+
 export default defineContentScript({
   matches: [
     "*://linear.app/*",
@@ -40,7 +42,10 @@ export default defineContentScript({
     "*://*.atlassian.net/*",
     "*://app.plane.so/*",
   ],
-  main() {
+  async main() {
+    // Load the Solidtime instance settings and tokens before any API call
+    await storageLoaded;
+
     // Determine which platform we're on
     const isLinear = window.location.hostname.includes("linear.app");
     const isJira = window.location.hostname.includes("atlassian.net");
