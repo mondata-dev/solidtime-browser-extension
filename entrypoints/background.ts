@@ -1,4 +1,53 @@
+import { GITLAB_DOMAINS_KEY, getGitLabDomains } from "./utils/gitlabDomains";
+
+const GITLAB_CONTENT_SCRIPT_ID = "solidtime-gitlab";
+
 export default defineBackground(() => {
+  // Register the content script on self-hosted GitLab domains (gitlab.com is in the manifest)
+  async function syncGitLabContentScripts() {
+    try {
+      const domains = await getGitLabDomains();
+      const matches = domains.map((domain) => `*://${domain}/*`);
+
+      const [registered] = await browser.scripting.getRegisteredContentScripts({
+        ids: [GITLAB_CONTENT_SCRIPT_ID],
+      });
+
+      // Nothing to do if the registration is already up to date
+      if ((registered?.matches ?? []).join(",") === matches.join(",")) {
+        return;
+      }
+
+      if (registered) {
+        await browser.scripting.unregisterContentScripts({
+          ids: [GITLAB_CONTENT_SCRIPT_ID],
+        });
+      }
+
+      if (matches.length > 0) {
+        await browser.scripting.registerContentScripts([
+          {
+            id: GITLAB_CONTENT_SCRIPT_ID,
+            matches,
+            js: ["content-scripts/content.js"],
+            runAt: "document_idle",
+          },
+        ]);
+      }
+    } catch (error) {
+      console.error("Failed to register GitLab content script:", error);
+    }
+  }
+
+  // Run syncs one after another so overlapping changes can't race
+  let gitLabSync = syncGitLabContentScripts();
+
+  browser.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes[GITLAB_DOMAINS_KEY]) {
+      gitLabSync = gitLabSync.then(syncGitLabContentScripts);
+    }
+  });
+
   // OAuth state
   let oauthState = "";
   let oauthVerifier = "";
