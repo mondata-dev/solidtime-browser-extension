@@ -14,7 +14,7 @@ export default defineConfig({
     },
     browser_specific_settings: {
       gecko: {
-        id: "hello@solidtime.io",
+        id: "solidtime@mondata.de",
         data_collection_permissions: {
           required: [
             "personallyIdentifyingInfo",
